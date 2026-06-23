@@ -1236,7 +1236,7 @@ def proximity_embed(account_name, order, current, ticks_away):
     cid = order.get("contractId", "")
     sym = order.get("symbolId") or short_symbol(cid)
     is_buy = order.get("side") == SIDE_BUY
-    kind = "Limit" if order.get("limitPrice") else "Stop"
+    kind = "Limit" if order.get("limitPrice") else "Fill"
     trig = order.get("limitPrice") or order.get("stopPrice")
     pv = point_value(cid, order.get("symbolId"))
     pts = abs(current - trig) if (current is not None and trig is not None) else None
