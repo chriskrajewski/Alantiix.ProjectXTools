@@ -30,6 +30,9 @@ The `resubmit` job **submits real orders**. Understand it fully before enabling.
 - **Order Working alert** — fires when a new resting order appears (limit/stop),
   with action, type, size, trigger price, current price, and distance in
   ticks/points. Also posts an *Active Orders* board and a chart per symbol.
+- **Approaching-trigger alert** — warns when price comes within a configurable
+  number of ticks of a working order's stop/limit. Fires once per approach and
+  re-arms if price pulls away and comes back (no per-minute spam).
 - **Order Filled alert** — a full trade ticket: entry, size, current price,
   take-profit / stop with distance, R:R, dollar risk→reward, live unrealized
   P/L (pts / $ / R), a progress bar between stop and target, optional account
@@ -44,6 +47,36 @@ The `resubmit` job **submits real orders**. Understand it fully before enabling.
 
 Every alert is deduplicated via a small JSON state file, so you never get
 repeats.
+
+---
+
+## Examples
+
+Each alert posts a Discord embed with the data described below, plus an
+annotated chart.
+
+**Order filled** — entry, stop, target, R:R, live P/L, progress between stop and target:
+
+![Order filled alert](assets/alert_fill.png)
+
+**Order working** — a resting stop/limit with its trigger and distance to price:
+
+![Order working alert](assets/alert_working.png)
+
+**Approaching trigger** — price within your configured distance of an order:
+
+![Approaching trigger alert](assets/alert_proximity.png)
+
+**Position closed** — entry → exit with realized P/L:
+
+![Position closed alert](assets/alert_closed.png)
+
+**Active orders board** — all resting orders for a symbol on one chart:
+
+![Active orders board](assets/alert_board.png)
+
+> Tip: replace these with real screenshots of your own Discord alerts (drop
+> them in `assets/` and update the paths) for the fullest picture.
 
 ---
 
@@ -93,6 +126,7 @@ Secrets are read from environment variables — **nothing is hardcoded**. Copy
 | `DISCORD_WEBHOOK` | yes | Discord webhook URL |
 | `PROJECTX_API_BASE` | no | API base (default `https://api.topstepx.com/api`) |
 | `PROJECTX_STATE_DIR` | no | Where state/snapshot files live (set to your mounted dir) |
+| `PROJECTX_PROXIMITY_DOLLARS` | no | Warn when price is within $N (price units) of a working order's trigger (default `2`; `0` disables) |
 
 In-script config (edit near the top of `projectx_monitor.py`):
 

@@ -62,9 +62,10 @@ SKY = {
 }
 def _hex_int(h):
     return int(h.lstrip("#"), 16)
-SKY_ICE  = _hex_int(SKY["ice"])
-SKY_BULL = _hex_int(SKY["bull"])
-SKY_BEAR = _hex_int(SKY["bear"])
+SKY_ICE   = _hex_int(SKY["ice"])
+SKY_BULL  = _hex_int(SKY["bull"])
+SKY_BEAR  = _hex_int(SKY["bear"])
+SKY_AMBER = _hex_int(SKY["amber"])
 
 
 def log(msg: str):
@@ -149,6 +150,15 @@ TOPSTEP_LIMITS = {
 }
 # Daily-loss window resets at this UTC hour (~6 PM ET during EDT futures open).
 DAY_RESET_UTC_HOUR = 22
+
+# Proximity alert: warn when price comes within this many dollars (price units)
+# of a working order's stop/limit trigger. For $-priced instruments (e.g. gold,
+# silver) this is literally dollars-of-price. 0 disables.
+# Override with PROJECTX_PROXIMITY_DOLLARS.
+try:
+    PROXIMITY_DOLLARS = float(os.environ.get("PROJECTX_PROXIMITY_DOLLARS", "2"))
+except ValueError:
+    PROXIMITY_DOLLARS = 2.0
 
 
 def account_limits(account):
@@ -1222,6 +1232,88 @@ def send_active_orders_summary(token, account, fill_cid=None, fill_is_long=True,
     log(f"  active-orders summary sent ({len(orders)} order(s) across {charts} chart(s))")
 
 
+def proximity_embed(account_name, order, current, ticks_away):
+    cid = order.get("contractId", "")
+    sym = order.get("symbolId") or short_symbol(cid)
+    is_buy = order.get("side") == SIDE_BUY
+    kind = "Limit" if order.get("limitPrice") else "Stop"
+    trig = order.get("limitPrice") or order.get("stopPrice")
+    pv = point_value(cid, order.get("symbolId"))
+    pts = abs(current - trig) if (current is not None and trig is not None) else None
+    usd = round(pts * (order.get("size", 1)) * pv, 2) if (pts is not None and pv) else None
+
+    def fmt(v): return f"{v:g}" if v is not None else "—"
+    bits = []
+    if ticks_away is not None:
+        bits.append(f"{ticks_away} ticks")
+    if pts is not None:
+        bits.append(f"{pts:g} pts")
+    if usd is not None:
+        bits.append(_money(usd))
+    dist = "  •  ".join(bits) or "—"
+    fields = [
+        {"name": "Account", "value": account_name, "inline": True},
+        {"name": "Symbol", "value": sym, "inline": True},
+        {"name": "Order", "value": f"{'Buy' if is_buy else 'Sell'} {order.get('size', 1)}x {kind}", "inline": True},
+        {"name": f"{kind} Trigger", "value": fmt(trig), "inline": True},
+        {"name": "Current", "value": fmt(current), "inline": True},
+        {"name": "Distance", "value": dist, "inline": True},
+    ]
+    return {"author": {"name": "Alantiix · ProjectX"},
+            "title": f"⚠️ Approaching {kind} — {sym} {'Buy' if is_buy else 'Sell'}",
+            "color": SKY_AMBER, "fields": fields,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "footer": {"text": f"Alantiix · ProjectX Monitor  •  Order #{order.get('id')}"}}
+
+
+def process_proximity_alerts(token, accounts, state, now):
+    """Alert when price comes within PROXIMITY_TICKS of a working order's
+    trigger. One alert per approach episode (re-arms when price pulls away)."""
+    if PROXIMITY_DOLLARS <= 0:
+        return
+    prev = set(state.get("proximity_active", []))
+    in_zone, sent, logo = set(), 0, None
+    last_px = {}  # contractId -> current price (fetch once per contract)
+    for account in accounts:
+        aid = account["id"]
+        aname = account.get("name", str(aid))
+        try:
+            orders = api_post(token, "Order/searchOpen", {"accountId": aid}).get("orders", [])
+        except Exception:
+            continue
+        for o in orders:
+            trig = o.get("limitPrice") or o.get("stopPrice")
+            cid = o.get("contractId", "")
+            if trig is None or not cid:
+                continue
+            if cid not in last_px:
+                last_px[cid] = get_last_price(token, cid)
+            cur = last_px[cid]
+            if cur is None:
+                continue
+            ts = tick_size(cid, o.get("symbolId"))
+            price_dist = abs(cur - trig)
+            ticks_away = round(price_dist / ts) if ts else None
+            if price_dist <= PROXIMITY_DOLLARS:
+                oid = o.get("id")
+                in_zone.add(oid)
+                if oid not in prev:        # just entered the zone → alert once
+                    if logo is None:
+                        logo = make_skylit_logo_png()
+                    cur_chart = make_chart(token, cid, o.get("symbolId") or short_symbol(cid),
+                                           o.get("side") == SIDE_BUY, None, None, None, cur,
+                                           size=o.get("size", 1), pv=point_value(cid, o.get("symbolId")),
+                                           ts=ts, order_price=trig) if cid else None
+                    send_discord_embed(proximity_embed(aname, o, cur, ticks_away),
+                                       image_bytes=cur_chart, logo_bytes=logo)
+                    sent += 1
+                    log(f"  proximity: {o.get('symbolId') or short_symbol(cid)} #{oid} "
+                        f"{price_dist:g} from {trig} (<= ${PROXIMITY_DOLLARS:g})")
+    state["proximity_active"] = list(in_zone)
+    if sent:
+        log(f"  {sent} proximity alert(s) sent")
+
+
 def main():
     _require_config()
     log(f"ProjectX monitor starting | state file: {STATE_FILE}")
@@ -1415,6 +1507,12 @@ def main():
         process_closed_trades(token, accounts, state, now)
     except Exception as e:
         log(f"exit detection error: {e}")
+
+    # Proximity alerts: price nearing a working order's stop/limit trigger.
+    try:
+        process_proximity_alerts(token, accounts, state, now)
+    except Exception as e:
+        log(f"proximity detection error: {e}")
 
     # Live snapshot of current open positions + unrealized P&L (console status).
     report_positions(token, accounts)
