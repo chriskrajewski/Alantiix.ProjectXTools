@@ -1,0 +1,66 @@
+//@version=6
+// =============================================================================
+// Order Map — plots working orders from your account JSON on the chart
+// =============================================================================
+// Pine Script cannot read external files at runtime, so the orders below are
+// embedded directly from your JSON (captured 2026-06-26).
+//
+// Each order is drawn as a horizontal line at its stop price, extended to the
+// right, with a label showing: side, size and price.
+//   - side 0 (buy / long stop)  -> green
+//   - side 1 (sell / short stop) -> red
+//
+// Orders are filtered by the chart's symbol root: only MGC orders show on a
+// gold chart, only SIL orders show on a silver chart. To refresh later, just
+// replace the values in the arrays below with your new JSON, keeping the same
+// order: root, price, side, size.
+// =============================================================================
+
+indicator("Order Map (MGC / SIL)", overlay = true, max_lines_count = 100, max_labels_count = 100)
+
+// ---- Inputs -----------------------------------------------------------------
+showAll      = input.bool(false, "Show all symbols (ignore symbol filter)")
+lineWidth    = input.int(1, "Line width", minval = 1, maxval = 5)
+lookbackBars = input.int(200, "Line start (bars back)", minval = 10, maxval = 5000)
+buyColor     = input.color(color.new(color.green, 0), "Buy / long stop")
+sellColor    = input.color(color.new(color.red, 0),   "Sell / short stop")
+labelSize    = input.string(size.small, "Label size", options = [size.tiny, size.small, size.normal, size.large])
+
+// ---- Embedded order data (from JSON) ----------------------------------------
+// root, price, side (0 buy / 1 sell), size
+var string[] roots  = array.from("MGC","MGC","MGC","MGC","MGC","SIL","SIL","SIL","SIL","SIL")
+var float[]  prices = array.from(4403.1, 4233.7, 4216.2, 4163.6, 3975.8, 71.65, 66.975, 62.43, 55.75, 59.05)
+var int[]    sides  = array.from(0, 0, 0, 0, 1, 0, 0, 0, 1, 0)
+var int[]    sizes  = array.from(5, 5, 5, 5, 5, 1, 1, 1, 1, 1)
+
+// ---- Draw on the last bar only ----------------------------------------------
+var line[]  drawnLines  = array.new_line()
+var label[] drawnLabels = array.new_label()
+
+if barstate.islast
+    // clear previous drawings
+    for ln in drawnLines
+        line.delete(ln)
+    for lb in drawnLabels
+        label.delete(lb)
+    array.clear(drawnLines)
+    array.clear(drawnLabels)
+
+    x1 = bar_index - lookbackBars
+    x2 = bar_index + 20
+
+    for i = 0 to array.size(prices) - 1
+        root  = array.get(roots, i)
+        matches = showAll or str.contains(syminfo.ticker, root) or str.contains(syminfo.prefix, root)
+        if matches
+            price = array.get(prices, i)
+            side  = array.get(sides, i)
+            sz    = array.get(sizes, i)
+            col   = side == 0 ? buyColor : sellColor
+            txt   = (side == 0 ? "BUY " : "SELL ") + str.tostring(sz) + " @ " + str.tostring(price)
+
+            ln = line.new(x1, price, x2, price, xloc = xloc.bar_index, extend = extend.right, color = col, width = lineWidth, style = line.style_solid)
+            array.push(drawnLines, ln)
+
+            lb = label.new(x2, price, text = txt, xloc = xloc.bar_index, style = label.style_label_left, color = col, textcolor = color.white, size = labelSize)
+            array.push(drawnLabels, lb)
