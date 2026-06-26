@@ -209,10 +209,56 @@ docker run --rm -v /path/to/scripts:/work --env-file /path/to/.env \
 projectx_monitor.py     # every-minute monitor: order/fill/close alerts + charts
 projectx_snapshot.py    # pre-flatten: capture open orders to a shared file
 projectx_resubmit.py    # reopen: re-place the captured orders
+json_to_pine.py         # converts an account orders JSON export to a Pine Script v6 file
+plot_orders.pine        # sample generated Pine Script — paste into TradingView
 wrappers/               # example docker run wrappers for each job
 .env.example            # environment variable template
 requirements.txt        # python dependencies
 ```
+
+---
+
+## TradingView order map (`json_to_pine.py`)
+
+Pine Script cannot read files at runtime, so `json_to_pine.py` bakes your
+working orders directly into a `.pine` source file as arrays. Paste the result
+into a TradingView chart to see your resting orders as horizontal lines.
+
+**Usage:**
+
+```bash
+# Export your orders from the ProjectX API (or portal), then:
+python3 json_to_pine.py orders.json                 # writes plot_orders.pine
+python3 json_to_pine.py orders.json my_output.pine  # custom output filename
+python3 json_to_pine.py orders.json -               # print to stdout
+python3 json_to_pine.py orders.json --all           # include all statuses (default: working only)
+```
+
+**What `plot_orders.pine` does:**
+
+The generated Pine Script is a TradingView v6 overlay indicator. Once pasted
+into the Pine Editor and added to your chart it draws a horizontal line at each
+order's price, extended to the right edge of the chart, with a label showing
+side, size, and price (`BUY 5 @ 4403.1`). Buy orders are green, sells are red.
+
+Orders are filtered by the chart's current symbol — MGC orders only appear on a
+gold chart, SIL orders on a silver chart, etc. — so one script can hold orders
+for multiple roots without cluttering unrelated charts. A "Show all symbols"
+checkbox in the indicator settings overrides the filter.
+
+The indicator also exposes settings for line width, label size, buy/sell colors,
+and how many bars back the lines extend.
+
+**Workflow:**
+
+1. Export your orders JSON from the ProjectX API or portal.
+2. Run `json_to_pine.py` to generate a fresh `plot_orders.pine`.
+3. Open TradingView → Pine Editor → paste the contents → click **Add to chart**.
+4. When your orders change, re-run the converter and replace the script — only
+   the four embedded arrays (`roots`, `prices`, `sides`, `sizes`) change between
+   refreshes, so a quick paste is all that's needed.
+
+Re-run the converter whenever you have a fresh JSON export to refresh the embedded orders.
 
 ---
 
