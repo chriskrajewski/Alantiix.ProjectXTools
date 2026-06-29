@@ -24,7 +24,12 @@ lineWidth    = input.int(1, "Line width", minval = 1, maxval = 5)
 lookbackBars = input.int(200, "Line start (bars back)", minval = 10, maxval = 5000)
 buyColor     = input.color(color.new(color.green, 0), "Buy / long stop")
 sellColor    = input.color(color.new(color.red, 0),   "Sell / short stop")
-labelSize    = input.string(size.small, "Label size", options = [size.tiny, size.small, size.normal, size.large])
+labelSize    = input.string(size.normal, "Label size", options = [size.tiny, size.small, size.normal, size.large, size.huge])
+
+// Visibility options
+showPriceScale = input.bool(true, "Tag price on price scale")
+showLabels     = input.bool(true, "Show floating labels on chart")
+labelOffset    = input.int(3, "Label offset (bars right of last bar)", minval = 0, maxval = 50)
 
 // ---- Embedded order data (from JSON) ----------------------------------------
 // root, price, side (0 buy / 1 sell), size
@@ -32,6 +37,24 @@ var string[] roots  = array.from("MGC","MGC","MGC","MGC","MGC","SIL","SIL","SIL"
 var float[]  prices = array.from(4403.1, 4233.7, 4216.2, 4163.6, 3975.8, 71.65, 66.975, 62.43, 55.75, 59.05)
 var int[]    sides  = array.from(0, 0, 0, 0, 1, 0, 0, 0, 1, 0)
 var int[]    sizes  = array.from(5, 5, 5, 5, 5, 1, 1, 1, 1, 1)
+
+// ---- Helpers for price-scale tags -------------------------------------------
+// plot() must live at global scope with a fixed count, so we expose a set of
+// order "slots". Each helper returns na for empty or filtered-out slots, which
+// draws nothing on the axis.
+orderPrice(i) =>
+    p = float(na)
+    if i < array.size(prices)
+        r = array.get(roots, i)
+        if showAll or str.contains(syminfo.ticker, r) or str.contains(syminfo.prefix, r)
+            p := array.get(prices, i)
+    p
+
+orderColor(i) =>
+    c = color(na)
+    if i < array.size(prices)
+        c := array.get(sides, i) == 0 ? buyColor : sellColor
+    c
 
 // ---- Draw on the last bar only ----------------------------------------------
 var line[]  drawnLines  = array.new_line()
@@ -62,5 +85,33 @@ if barstate.islast
             ln = line.new(x1, price, x2, price, xloc = xloc.bar_index, extend = extend.right, color = col, width = lineWidth, style = line.style_solid)
             array.push(drawnLines, ln)
 
-            lb = label.new(x2, price, text = txt, xloc = xloc.bar_index, style = label.style_label_left, color = col, textcolor = color.white, size = labelSize)
-            array.push(drawnLabels, lb)
+            if showLabels
+                lb = label.new(bar_index + labelOffset, price, text = txt, xloc = xloc.bar_index, style = label.style_label_left, color = col, textcolor = color.white, size = labelSize)
+                array.push(drawnLabels, lb)
+
+// ---- Price-scale tags (always visible on the right axis) --------------------
+// Shows each order's PRICE as a colored tag on the price scale, regardless of
+// horizontal scroll. Pine can only put numeric values (not the full
+// "BUY 5 @ ..." text) on the axis, so the side is conveyed by color.
+// Up to 20 order slots are supported — add more plot lines if you ever embed
+// more than 20 orders.
+plot(showPriceScale ? orderPrice(0)  : na, "Order 1",  color = orderColor(0),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(1)  : na, "Order 2",  color = orderColor(1),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(2)  : na, "Order 3",  color = orderColor(2),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(3)  : na, "Order 4",  color = orderColor(3),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(4)  : na, "Order 5",  color = orderColor(4),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(5)  : na, "Order 6",  color = orderColor(5),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(6)  : na, "Order 7",  color = orderColor(6),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(7)  : na, "Order 8",  color = orderColor(7),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(8)  : na, "Order 9",  color = orderColor(8),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(9)  : na, "Order 10", color = orderColor(9),  display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(10) : na, "Order 11", color = orderColor(10), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(11) : na, "Order 12", color = orderColor(11), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(12) : na, "Order 13", color = orderColor(12), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(13) : na, "Order 14", color = orderColor(13), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(14) : na, "Order 15", color = orderColor(14), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(15) : na, "Order 16", color = orderColor(15), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(16) : na, "Order 17", color = orderColor(16), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(17) : na, "Order 18", color = orderColor(17), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(18) : na, "Order 19", color = orderColor(18), display = display.price_scale, editable = false)
+plot(showPriceScale ? orderPrice(19) : na, "Order 20", color = orderColor(19), display = display.price_scale, editable = false)
