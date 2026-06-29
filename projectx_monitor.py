@@ -160,6 +160,55 @@ try:
 except ValueError:
     PROXIMITY_DOLLARS = 2.0
 
+# Per-symbol proximity overrides (price units). A symbol listed here uses its
+# own distance instead of PROXIMITY_DOLLARS. Matched as a substring against the
+# order's symbolId / contractId, so "SIL" covers F.US.SIL and CON.F.US.SIL.M25
+# (and won't catch full-size silver "F.US.SI", which has no "SIL" in its id).
+# Silver trades in the low double digits, so $1 fires too early — use $0.50.
+#
+# Add more symbols here in code, OR without editing code via the env var
+# PROJECTX_PROXIMITY_OVERRIDES — a comma-separated list of SYMBOL=DOLLARS pairs:
+#   PROJECTX_PROXIMITY_OVERRIDES="SIL=0.5,SI=0.5,GC=1.5"
+# Env entries are merged on top of these defaults (env wins on conflicts).
+PROXIMITY_DOLLARS_BY_SYMBOL = {
+    "SIL": 0.5,
+}
+
+
+def _parse_proximity_overrides(raw):
+    """Parse 'SYM=0.5,SYM2=1.5' into {'SYM': 0.5, 'SYM2': 1.5}. Malformed
+    entries are skipped (with a log note) so a typo never crashes the monitor."""
+    out = {}
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        sym, sep, val = part.partition("=")
+        sym = sym.strip().upper()
+        if not sep or not sym:
+            log(f"  ignoring malformed PROJECTX_PROXIMITY_OVERRIDES entry: {part!r}")
+            continue
+        try:
+            out[sym] = float(val.strip())
+        except ValueError:
+            log(f"  ignoring non-numeric PROJECTX_PROXIMITY_OVERRIDES value: {part!r}")
+    return out
+
+
+PROXIMITY_DOLLARS_BY_SYMBOL.update(
+    _parse_proximity_overrides(os.environ.get("PROJECTX_PROXIMITY_OVERRIDES"))
+)
+
+
+def proximity_threshold(symbol_id=None, contract_id=None):
+    """Proximity distance for a contract: a per-symbol override if one matches,
+    else the global PROXIMITY_DOLLARS."""
+    hay = f"{symbol_id or ''} {contract_id or ''}".upper()
+    for key, dollars in PROXIMITY_DOLLARS_BY_SYMBOL.items():
+        if key.upper() in hay:
+            return dollars
+    return PROXIMITY_DOLLARS
+
 
 def account_limits(account):
     name = account.get("name", "")
@@ -1277,7 +1326,7 @@ def proximity_embed(account_name, order, current, ticks_away, has_position=False
 def process_proximity_alerts(token, accounts, state, now):
     """Alert when price comes within PROXIMITY_TICKS of a working order's
     trigger. One alert per approach episode (re-arms when price pulls away)."""
-    if PROXIMITY_DOLLARS <= 0:
+    if PROXIMITY_DOLLARS <= 0 and not any(v > 0 for v in PROXIMITY_DOLLARS_BY_SYMBOL.values()):
         return
     prev = set(state.get("proximity_active", []))
     in_zone, sent, logo = set(), 0, None
@@ -1309,7 +1358,8 @@ def process_proximity_alerts(token, accounts, state, now):
             ts = tick_size(cid, o.get("symbolId"))
             price_dist = abs(cur - trig)
             ticks_away = round(price_dist / ts) if ts else None
-            if price_dist <= PROXIMITY_DOLLARS:
+            threshold = proximity_threshold(o.get("symbolId"), cid)
+            if price_dist <= threshold:
                 oid = o.get("id")
                 in_zone.add(oid)
                 if oid not in prev:        # just entered the zone → alert once
@@ -1324,7 +1374,7 @@ def process_proximity_alerts(token, accounts, state, now):
                                        image_bytes=cur_chart, logo_bytes=logo)
                     sent += 1
                     log(f"  proximity: {o.get('symbolId') or short_symbol(cid)} #{oid} "
-                        f"{price_dist:g} from {trig} (<= ${PROXIMITY_DOLLARS:g})")
+                        f"{price_dist:g} from {trig} (<= ${threshold:g})")
     state["proximity_active"] = list(in_zone)
     if sent:
         log(f"  {sent} proximity alert(s) sent")
