@@ -1232,11 +1232,19 @@ def send_active_orders_summary(token, account, fill_cid=None, fill_is_long=True,
     log(f"  active-orders summary sent ({len(orders)} order(s) across {charts} chart(s))")
 
 
-def proximity_embed(account_name, order, current, ticks_away):
+def proximity_embed(account_name, order, current, ticks_away, has_position=False):
     cid = order.get("contractId", "")
     sym = order.get("symbolId") or short_symbol(cid)
     is_buy = order.get("side") == SIDE_BUY
-    kind = "Limit" if order.get("limitPrice") else "Fill"
+    # A limit order rests for a fill. A stop order with no open position in the
+    # contract is a stop-market ENTRY (breakout); with a position it's a
+    # protective stop that will fill on the way out.
+    if order.get("limitPrice"):
+        kind = "Limit"
+    elif order.get("stopPrice") and not has_position:
+        kind = "Entry"
+    else:
+        kind = "Fill"
     trig = order.get("limitPrice") or order.get("stopPrice")
     pv = point_value(cid, order.get("symbolId"))
     pts = abs(current - trig) if (current is not None and trig is not None) else None
@@ -1260,7 +1268,7 @@ def proximity_embed(account_name, order, current, ticks_away):
         {"name": "Distance", "value": dist, "inline": True},
     ]
     return {"author": {"name": "Alantiix · ProjectX"},
-            "title": f"⚠️ Approaching {kind} — {sym} {'Buy' if is_buy else 'Sell'}",
+            "title": f"‼️ Approaching {kind} — {sym} {'Buy' if is_buy else 'Sell'}",
             "color": SKY_AMBER, "fields": fields,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "footer": {"text": f"Alantiix · ProjectX Monitor  •  Order #{order.get('id')}"}}
@@ -1281,6 +1289,13 @@ def process_proximity_alerts(token, accounts, state, now):
             orders = api_post(token, "Order/searchOpen", {"accountId": aid}).get("orders", [])
         except Exception:
             continue
+        # Contracts with an open position → a stop there is a protective stop,
+        # not a stop-market entry. Fetch once per account.
+        try:
+            positions = api_post(token, "Position/searchOpen", {"accountId": aid}).get("positions", [])
+            position_cids = {p.get("contractId") for p in positions if p.get("contractId")}
+        except Exception:
+            position_cids = set()
         for o in orders:
             trig = o.get("limitPrice") or o.get("stopPrice")
             cid = o.get("contractId", "")
@@ -1304,7 +1319,8 @@ def process_proximity_alerts(token, accounts, state, now):
                                            o.get("side") == SIDE_BUY, None, None, None, cur,
                                            size=o.get("size", 1), pv=point_value(cid, o.get("symbolId")),
                                            ts=ts, order_price=trig) if cid else None
-                    send_discord_embed(proximity_embed(aname, o, cur, ticks_away),
+                    send_discord_embed(proximity_embed(aname, o, cur, ticks_away,
+                                                       has_position=cid in position_cids),
                                        image_bytes=cur_chart, logo_bytes=logo)
                     sent += 1
                     log(f"  proximity: {o.get('symbolId') or short_symbol(cid)} #{oid} "
